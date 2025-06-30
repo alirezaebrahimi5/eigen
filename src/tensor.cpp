@@ -1,5 +1,11 @@
 #include "tensor.h"
+#include <symengine/add.h>
+#include <symengine/mul.h>
+#include <symengine/pow.h>
+#include <symengine/symbol.h>
+#include <symengine/visitor.h>
 
+using namespace SymEngine;
 // Constructor
 Tensor::Tensor(const std::vector<int>& shape, const std::vector<std::string>& indices)
     : shape(shape), indices(indices) {
@@ -169,4 +175,43 @@ Tensor Tensor::covariant_derivative(const std::string& diff_index) {
 // Getter for shape
 const std::vector<int>& Tensor::get_shape() const {
     return shape;
+}
+
+
+RCP<const Basic> enforce_limit(const RCP<const Basic>& expr, const RCP<const Symbol>& param, int limit) {
+    if (is_a<const Pow>(*expr)) {
+        auto pow_expr = rcp_static_cast<const Pow>(expr);
+        if (eq(*pow_expr->get_base(), *param)) {
+            auto exp = pow_expr->get_exp();
+            if (is_a<const Integer>(*exp)) {
+                int exp_value = rcp_static_cast<const Integer>(exp)->as_int();
+                if (exp_value > limit) {
+                    return zero;  // remove term exceeding limit
+                }
+            }
+        }
+    } else if (is_a<const Mul>(*expr)) {
+        // For Mul, use map_basic_basic (terms -> terms)
+        map_basic_basic new_terms;
+        auto mul_expr = rcp_static_cast<const Mul>(expr);
+        for (const auto& term : mul_expr->get_dict()) {
+            auto limited_base = enforce_limit(term.first, param, limit);
+            if (!eq(*limited_base, *zero)) {
+                new_terms[limited_base] = term.second;
+            }
+        }
+        return Mul::from_dict(integer(1), std::move(new_terms));
+    } else if (is_a<const Add>(*expr)) {
+        // For Add, use umap_basic_num (terms -> numbers)
+        umap_basic_num new_terms;
+        auto add_expr = rcp_static_cast<const Add>(expr);
+        for (const auto& term : add_expr->get_dict()) {
+            auto limited_term = enforce_limit(term.first, param, limit);
+            if (!eq(*limited_term, *zero)) {
+                new_terms[limited_term] = term.second;
+            }
+        }
+        return Add::from_dict(integer(0), std::move(new_terms));
+    }
+    return expr;
 }
