@@ -1,0 +1,32 @@
+# Ignore build directories
+build/
+
+# Ignore SymEngine directory
+symengine/
+
+# Ignore Visual Studio Code settings
+.vscode/
+
+# Ignore common C++ build artifacts
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.a
+*.lib
+
+# Ignore CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.swp
+*.bak
+*.~*
