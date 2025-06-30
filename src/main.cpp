@@ -2,112 +2,141 @@
 #include "tensor_ops.h"
 #include <symengine/functions.h>
 #include <symengine/printers.h>
+#include <fstream>
+#include <sstream>
 #include <iostream>
+#include <symengine/parser.h>
 
 using namespace SymEngine;
 
-void print_tensor(const Tensor& tensor, const std::string& name) {
-    std::cout << "\n" << name << ":\n";
+void print_tensor_to_file(const Tensor& tensor, const std::string& name, std::ofstream& output_file) {
+    output_file << "\n" << name << ":\n";
     const auto& shape = tensor.get_shape();
 
     if (shape.size() == 2) {
-        // For rank 2 tensors, print with 4 repeated indices for formatting:
-        // e.g. G_mu_nu_{ijij}
         for (int i = 0; i < shape[0]; ++i) {
             for (int j = 0; j < shape[1]; ++j) {
                 auto elem = tensor.get_element({i, j});
-                std::cout << name << "_{" << i << j << " " << i << j << "} = "
-                          << SymEngine::str(*elem) << "\n";
+                output_file << name << "_{" << i << j << "} = "
+                            << SymEngine::str(*elem) << "\n";
             }
         }
-    }
-    else if (shape.size() == 4) {
-        // For rank 4 tensors, print normally
+    } else if (shape.size() == 3) {
+        for (int k = 0; k < shape[0]; ++k) {
+            for (int i = 0; i < shape[1]; ++i) {
+                for (int j = 0; j < shape[2]; ++j) {
+                    auto elem = tensor.get_element({k, i, j});
+                    output_file << name << "^" << k << "_{" << i << j << "} = "
+                                << SymEngine::str(*elem) << "\n";
+                }
+            }
+        }
+    } else if (shape.size() == 4) {
         for (int m = 0; m < shape[0]; ++m)
             for (int n = 0; n < shape[1]; ++n)
                 for (int i = 0; i < shape[2]; ++i)
                     for (int j = 0; j < shape[3]; ++j)
-                        std::cout << name << "^" << m << "_{" << n << " " << i << " " << j << "} = "
-                                  << SymEngine::str(*tensor.get_element({m, n, i, j})) << "\n";
+                        output_file << name << "^" << m << "_{" << n << " " << i << " " << j << "} = "
+                                    << SymEngine::str(*tensor.get_element({m, n, i, j})) << "\n";
+    } else {
+        output_file << "Tensor rank not supported for printing.\n";
     }
-    else {
-        std::cout << "Tensor rank not supported for printing.\n";
+}
+
+
+void parse_input_file(const std::string& file_path, int& dim, std::vector<RCP<const Symbol>>& coords, 
+                      std::vector<RCP<const Basic>>& functions, Tensor& metric) {
+    std::ifstream input_file(file_path);
+    if (!input_file) {
+        throw std::runtime_error("Error opening input file.");
+    }
+
+    std::string line;
+    while (std::getline(input_file, line)) {
+        std::istringstream iss(line);
+        std::string key, value;
+        if (std::getline(iss, key, '=') && std::getline(iss, value)) {
+            if (key == "dim") {
+                dim = std::stoi(value);
+            } else if (key == "variables") {
+                std::istringstream vars(value);
+                std::string var;
+                while (std::getline(vars, var, ',')) {
+                    coords.push_back(symbol(var));
+                }
+            } else if (key == "functions") {
+                std::istringstream funcs(value);
+                std::string func;
+                while (std::getline(funcs, func, ',')) {
+                    size_t open_paren = func.find('(');
+                    size_t close_paren = func.find(')');
+                    std::string name = func.substr(0, open_paren);
+                    std::string arg = func.substr(open_paren + 1, close_paren - open_paren - 1);
+                    functions.push_back(function_symbol(name, symbol(arg)));
+                }
+            } else if (key == "metric") {
+                metric = Tensor({dim, dim}, {"i", "j"});
+                std::istringstream elements(value);
+                std::string elem;
+                while (std::getline(elements, elem, ';')) {
+                    size_t colon = elem.find(':');
+                    std::string indices = elem.substr(0, colon);
+                    std::string value = elem.substr(colon + 1);
+
+                    int i = indices[0] - '0';
+                    int j = indices[2] - '0';
+
+                    metric.set_element({i, j}, parse(value));
+                }
+            }
+        }
     }
 }
 
 int main() {
-    // Define 4D coordinates
-    auto t = symbol("t");
-    auto x = symbol("x");
-    auto y = symbol("y");
-    auto z = symbol("z");
-    std::vector<RCP<const Symbol>> coords = {t, x, y, z};
+    int dim;
+    std::vector<RCP<const Symbol>> coords;
+    std::vector<RCP<const Basic>> functions;
+    Tensor metric({4, 4}, {"i", "j"});
 
-    int dim = 4;
+    try {
+        parse_input_file("input.txt", dim, coords, functions, metric);
 
-    // Define scale factors a(t), theta(t)
-    auto a = function_symbol("a", t);
-    auto theta = function_symbol("theta", t);
+        Tensor g_inv = compute_inverse_metric(metric);
+        Tensor Gamma = compute_christoffel(metric, g_inv, coords);
+        Tensor Riemann = compute_riemann(Gamma, coords);
 
-    // Initialize metric tensor g_ij
-    Tensor g({dim, dim}, {"i", "j"});
-    g.set_element({0, 0}, integer(-1));  // g_tt = -1
-    for (int i = 1; i < dim; ++i) {
-        g.set_element({i, i}, add(mul(a, a), mul(theta, theta)));  // spatial parts
+        int limit = 2;
+        for (int m = 0; m < dim; ++m)
+            for (int n = 0; n < dim; ++n)
+                for (int i = 0; i < dim; ++i)
+                    for (int j = 0; j < dim; ++j) {
+                        auto elem = Riemann.get_element({m, n, i, j});
+                        Riemann.set_element({m, n, i, j}, enforce_limit(elem, coords[0], limit));
+                    }
+
+        Tensor Ricci = compute_ricci(Riemann);
+        auto RicciScalar = compute_ricci_scalar(Ricci, g_inv);
+        Tensor Einstein = compute_einstein_tensor(Ricci, RicciScalar, metric);
+
+        std::ofstream output_file("output.txt");
+        if (!output_file) {
+            throw std::runtime_error("Error opening output file.");
+        }
+
+        print_tensor_to_file(metric, "FRW Metric Tensor g_ij", output_file);
+        print_tensor_to_file(g_inv, "Inverse Metric Tensor g^ij", output_file);
+        print_tensor_to_file(Gamma, "Christoffel Symbols Γ^k_ij", output_file);
+        print_tensor_to_file(Riemann, "Riemann Tensor R^m_nij", output_file);
+        print_tensor_to_file(Ricci, "Ricci Tensor R_mu_nu", output_file);
+        print_tensor_to_file(Einstein, "Einstein Tensor G_mu_nu", output_file);
+
+        output_file.close();
+        std::cout << "Calculation completed. Results saved to output.txt.\n";
+    } catch (const std::exception& ex) {
+        std::cerr << "Error: " << ex.what() << "\n";
+        return 1;
     }
-    for (int i = 0; i < dim; ++i) {
-        for (int j = 0; j < dim; ++j) {
-            if (i != j) {
-                g.set_element({i, j}, zero);
-            }
-        }
-    }
-
-    // Compute inverse metric
-    Tensor g_inv = compute_inverse_metric(g);
-
-    // Compute Christoffel symbols Γ^k_ij
-    Tensor Gamma = compute_christoffel(g, g_inv, coords);
-
-    // Compute Riemann curvature tensor R^m_nij
-    Tensor Riemann = compute_riemann(Gamma, coords);
-
-    // Limit powers if needed (limit=2)
-    int limit = 2;
-    for (int m = 0; m < dim; ++m)
-        for (int n = 0; n < dim; ++n)
-            for (int i = 0; i < dim; ++i)
-                for (int j = 0; j < dim; ++j) {
-                    auto elem = Riemann.get_element({m, n, i, j});
-                    Riemann.set_element({m, n, i, j}, enforce_limit(elem, t, limit));
-                }
-
-    for (int i = 0; i < dim; ++i)
-        for (int j = 0; j < dim; ++j) {
-            auto elem = g.get_element({i, j});
-            g.set_element({i, j}, enforce_limit(elem, t, limit));
-        }
-
-    // Print tensors
-    print_tensor(g, "FRW Metric Tensor g_ij");
-    print_tensor(g_inv, "Inverse Metric Tensor g^ij");
-    print_tensor(Gamma, "Christoffel Symbols Γ^k_ij");
-    print_tensor(Riemann, "Riemann Tensor R^m_nij");
-
-    // Compute Ricci, Ricci scalar, Einstein tensors
-    Tensor Ricci = compute_ricci(Riemann);
-    auto RicciScalar = compute_ricci_scalar(Ricci, g_inv);
-    Tensor Einstein = compute_einstein_tensor(Ricci, RicciScalar, g);
-
-    // Limit powers for Ricci and Einstein
-    for (int i = 0; i < dim; ++i)
-        for (int j = 0; j < dim; ++j) {
-            Ricci.set_element({i, j}, enforce_limit(Ricci.get_element({i, j}), t, limit));
-            Einstein.set_element({i, j}, enforce_limit(Einstein.get_element({i, j}), t, limit));
-        }
-
-    print_tensor(Ricci, "Ricci Tensor R_mu_nu");
-    print_tensor(Einstein, "Einstein Tensor G_mu_nu");
 
     return 0;
 }
