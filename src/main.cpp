@@ -89,5 +89,18 @@ int main() {
         }
     }
 
+    Tensor Ricci = compute_ricci(Riemann);
+    auto RicciScalar = compute_ricci_scalar(Ricci, g_inv);
+    Tensor Einstein = compute_einstein_tensor(Ricci, RicciScalar, g);
+
+    std::cout << "\nRicci Tensor R_mu_nu:\n";
+    Ricci.print();
+
+    std::cout << "\nRicci Scalar R:\n";
+    std::cout << *RicciScalar << "\n";
+
+    std::cout << "\nEinstein Tensor G_mu_nu:\n";
+    Einstein.print();
+
     return 0;
 }

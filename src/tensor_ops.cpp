@@ -169,3 +169,56 @@ Tensor compute_riemann(const Tensor& Gamma, const std::vector<RCP<const Symbol>>
     }
     return R;
 }
+
+// Contract Riemann tensor to get Ricci tensor: R_{mu,nu} = R^{alpha}_{mu,alpha,nu}
+Tensor compute_ricci(const Tensor& Riemann) {
+    auto shape = Riemann.get_shape(); // Expect {dim, dim, dim, dim}
+    int dim = shape[0];
+
+    Tensor Ricci({dim, dim}, {"mu", "nu"});
+
+    for (int mu = 0; mu < dim; ++mu) {
+        for (int nu = 0; nu < dim; ++nu) {
+            RCP<const Basic> sum = zero;
+            for (int alpha = 0; alpha < dim; ++alpha) {
+                sum = add(sum, Riemann.get_element({alpha, mu, alpha, nu}));
+            }
+            Ricci.set_element({mu, nu}, sum);
+        }
+    }
+    return Ricci;
+}
+
+// Compute Ricci scalar: R = g^{mu,nu} R_{mu,nu}
+RCP<const Basic> compute_ricci_scalar(const Tensor& Ricci, const Tensor& g_inv) {
+    auto shape = Ricci.get_shape();
+    int dim = shape[0];
+
+    RCP<const Basic> R = zero;
+
+    for (int mu = 0; mu < dim; ++mu) {
+        for (int nu = 0; nu < dim; ++nu) {
+            auto term = mul(g_inv.get_element({mu, nu}), Ricci.get_element({mu, nu}));
+            R = add(R, term);
+        }
+    }
+    return R;
+}
+
+// Compute Einstein tensor: G_{mu,nu} = R_{mu,nu} - 1/2 * R * g_{mu,nu}
+Tensor compute_einstein_tensor(const Tensor& Ricci, const RCP<const Basic>& RicciScalar, const Tensor& g) {
+    auto shape = Ricci.get_shape();
+    int dim = shape[0];
+
+    Tensor Einstein({dim, dim}, {"mu", "nu"});
+
+    auto half = div(integer(1), integer(2));
+
+    for (int mu = 0; mu < dim; ++mu) {
+        for (int nu = 0; nu < dim; ++nu) {
+            auto val = sub(Ricci.get_element({mu, nu}), mul(half, mul(RicciScalar, g.get_element({mu, nu}))));
+            Einstein.set_element({mu, nu}, val);
+        }
+    }
+    return Einstein;
+}
