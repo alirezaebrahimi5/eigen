@@ -55,13 +55,13 @@ void print_tensor_to_file(const Tensor& tensor, const std::string& name, std::of
 }
 
 
-
 void parse_input_file(
     const std::string& file_path,
     int& dim,
     std::vector<RCP<const Symbol>>& coords,
     std::vector<RCP<const Basic>>& functions,
     Tensor& metric,
+    Tensor& stress_energy_tensor, // Add a parameter for T_mu_nu
     RCP<const Basic>& c_val,
     RCP<const Basic>& G_val,
     RCP<const Basic>& pi_val,
@@ -114,6 +114,21 @@ void parse_input_file(
                     metric.set_element({i, j}, parse(val));
                 }
 
+            } else if (key == "T") { // Add a new key for T_mu_nu
+                stress_energy_tensor = Tensor({dim, dim}, {"mu", "nu"});
+                std::istringstream elements(value);
+                std::string elem;
+                while (std::getline(elements, elem, ';')) {
+                    size_t colon = elem.find(':');
+                    std::string indices = elem.substr(0, colon);
+                    std::string val = elem.substr(colon + 1);
+
+                    int mu = indices[0] - '0';
+                    int nu = indices[2] - '0';
+
+                    stress_energy_tensor.set_element({mu, nu}, parse(val));
+                }
+
             } else if (key == "c") {
                 c_val = parse(value);
 
@@ -138,14 +153,14 @@ int main() {
     std::vector<RCP<const Basic>> functions;
     Tensor metric({4, 4}, {"i", "j"});
 
-
+    Tensor T({4, 4}, {"mu", "nu"}); 
     RCP<const Basic> c_val;
     RCP<const Basic> G_val;
     RCP<const Basic> pi_val;
     RCP<const Basic> Lambda_val;
 
     try {
-        parse_input_file("input.txt", dim, coords, functions, metric, c_val, G_val, pi_val, Lambda_val);
+        parse_input_file("input.txt", dim, coords, functions, metric, T, c_val, G_val, pi_val, Lambda_val);
 
         Tensor g_inv = compute_inverse_metric(metric);
         Tensor Gamma = compute_christoffel(metric, g_inv, coords);
@@ -180,6 +195,26 @@ int main() {
             }
         }
 
+        // Compute RHS: 8 * pi * G * T
+        Tensor EFE_right_side({dim, dim}, {"mu", "nu"});
+        auto eight_pi_G = mul(parse("8"), mul(pi_val, G_val));
+        for (int i = 0; i < dim; ++i) {
+            for (int j = 0; j < dim; ++j) {
+                auto T_mn = T.get_element({i, j});
+                EFE_right_side.set_element({i, j}, mul(eight_pi_G, T_mn));
+            }
+        }
+
+        // Compute the difference between LHS and RHS
+        Tensor EFE_difference({dim, dim}, {"mu", "nu"});
+        for (int i = 0; i < dim; ++i) {
+            for (int j = 0; j < dim; ++j) {
+                auto lhs = EFE_left_side.get_element({i, j});
+                auto rhs = EFE_right_side.get_element({i, j});
+                EFE_difference.set_element({i, j}, sub(lhs, rhs));
+            }
+        }
+
         print_tensor_to_file(metric, "FRW Metric Tensor g_ij", output_file);
         print_tensor_to_file(g_inv, "Inverse Metric Tensor g^ij", output_file);
         print_tensor_to_file(Gamma, "Christoffel Symbols Γ^k_ij", output_file);
@@ -187,6 +222,8 @@ int main() {
         print_tensor_to_file(Ricci, "Ricci Tensor R_mu_nu", output_file);
         print_tensor_to_file(Einstein, "Einstein Tensor G_mu_nu", output_file);
         print_tensor_to_file(EFE_left_side, "EFE Left Side (G_mu_nu + Lambda * g_mu_nu)", output_file);
+        print_tensor_to_file(EFE_right_side, "EFE Right Side (8 pi G T_mu_nu)", output_file);
+        print_tensor_to_file(EFE_difference, "EFE Difference (LHS - RHS)", output_file);
 
         output_file.close();
         std::cout << "Calculation completed. Results saved to output.txt.\n";
