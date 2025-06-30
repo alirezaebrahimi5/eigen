@@ -12,40 +12,61 @@ using namespace SymEngine;
 void print_tensor_to_file(const Tensor& tensor, const std::string& name, std::ofstream& output_file) {
     output_file << "\n" << name << ":\n";
     const auto& shape = tensor.get_shape();
+    size_t rank = shape.size();
 
-    if (shape.size() == 2) {
+    if (rank == 2) {
+        // Handle metric tensors (rank-2 tensors)
         for (int i = 0; i < shape[0]; ++i) {
             for (int j = 0; j < shape[1]; ++j) {
                 auto elem = tensor.get_element({i, j});
-                output_file << name << "_{" << i << j << "} = "
-                            << SymEngine::str(*elem) << "\n";
+                output_file << name << "_{" << i << " " << j << "} = " << SymEngine::str(*elem) << "\n";
             }
         }
-    } else if (shape.size() == 3) {
+    } 
+    else if (rank == 3) {
+        // Handle 3D tensors
         for (int k = 0; k < shape[0]; ++k) {
             for (int i = 0; i < shape[1]; ++i) {
                 for (int j = 0; j < shape[2]; ++j) {
                     auto elem = tensor.get_element({k, i, j});
-                    output_file << name << "^" << k << "_{" << i << j << "} = "
-                                << SymEngine::str(*elem) << "\n";
+                    output_file << name << "^" << k << "_{" << i << " " << j << "} = " << SymEngine::str(*elem) << "\n";
                 }
             }
         }
-    } else if (shape.size() == 4) {
-        for (int m = 0; m < shape[0]; ++m)
-            for (int n = 0; n < shape[1]; ++n)
-                for (int i = 0; i < shape[2]; ++i)
-                    for (int j = 0; j < shape[3]; ++j)
-                        output_file << name << "^" << m << "_{" << n << " " << i << " " << j << "} = "
-                                    << SymEngine::str(*tensor.get_element({m, n, i, j})) << "\n";
-    } else {
+    } 
+    else if (rank == 4) {
+        // Handle 4D tensors
+        for (int m = 0; m < shape[0]; ++m) {
+            for (int n = 0; n < shape[1]; ++n) {
+                for (int i = 0; i < shape[2]; ++i) {
+                    for (int j = 0; j < shape[3]; ++j) {
+                        auto elem = tensor.get_element({m, n, i, j});
+                        output_file << name << "^" << m << "_{" << n << " " << i << " " << j << "} = " 
+                                    << SymEngine::str(*elem) << "\n";
+                    }
+                }
+            }
+        }
+    } 
+    else {
+        // Fallback for unsupported ranks
         output_file << "Tensor rank not supported for printing.\n";
     }
 }
 
 
-void parse_input_file(const std::string& file_path, int& dim, std::vector<RCP<const Symbol>>& coords, 
-                      std::vector<RCP<const Basic>>& functions, Tensor& metric) {
+
+void parse_input_file(
+    const std::string& file_path,
+    int& dim,
+    std::vector<RCP<const Symbol>>& coords,
+    std::vector<RCP<const Basic>>& functions,
+    Tensor& metric,
+    RCP<const Basic>& c_val,
+    RCP<const Basic>& G_val,
+    RCP<const Basic>& pi_val,
+    RCP<const Basic>& Lambda_val
+) {
     std::ifstream input_file(file_path);
     if (!input_file) {
         throw std::runtime_error("Error opening input file.");
@@ -55,15 +76,18 @@ void parse_input_file(const std::string& file_path, int& dim, std::vector<RCP<co
     while (std::getline(input_file, line)) {
         std::istringstream iss(line);
         std::string key, value;
+
         if (std::getline(iss, key, '=') && std::getline(iss, value)) {
             if (key == "dim") {
                 dim = std::stoi(value);
+
             } else if (key == "variables") {
                 std::istringstream vars(value);
                 std::string var;
                 while (std::getline(vars, var, ',')) {
                     coords.push_back(symbol(var));
                 }
+
             } else if (key == "functions") {
                 std::istringstream funcs(value);
                 std::string func;
@@ -74,6 +98,7 @@ void parse_input_file(const std::string& file_path, int& dim, std::vector<RCP<co
                     std::string arg = func.substr(open_paren + 1, close_paren - open_paren - 1);
                     functions.push_back(function_symbol(name, symbol(arg)));
                 }
+
             } else if (key == "metric") {
                 metric = Tensor({dim, dim}, {"i", "j"});
                 std::istringstream elements(value);
@@ -81,17 +106,31 @@ void parse_input_file(const std::string& file_path, int& dim, std::vector<RCP<co
                 while (std::getline(elements, elem, ';')) {
                     size_t colon = elem.find(':');
                     std::string indices = elem.substr(0, colon);
-                    std::string value = elem.substr(colon + 1);
+                    std::string val = elem.substr(colon + 1);
 
                     int i = indices[0] - '0';
                     int j = indices[2] - '0';
 
-                    metric.set_element({i, j}, parse(value));
+                    metric.set_element({i, j}, parse(val));
                 }
+
+            } else if (key == "c") {
+                c_val = parse(value);
+
+            } else if (key == "G") {
+                G_val = parse(value);
+
+            } else if (key == "pi") {
+                pi_val = parse(value);
+
+            } else if (key == "Lambda") {
+                Lambda_val = parse(value);
             }
         }
     }
 }
+
+
 
 int main() {
     int dim;
@@ -99,8 +138,14 @@ int main() {
     std::vector<RCP<const Basic>> functions;
     Tensor metric({4, 4}, {"i", "j"});
 
+
+    RCP<const Basic> c_val;
+    RCP<const Basic> G_val;
+    RCP<const Basic> pi_val;
+    RCP<const Basic> Lambda_val;
+
     try {
-        parse_input_file("input.txt", dim, coords, functions, metric);
+        parse_input_file("input.txt", dim, coords, functions, metric, c_val, G_val, pi_val, Lambda_val);
 
         Tensor g_inv = compute_inverse_metric(metric);
         Tensor Gamma = compute_christoffel(metric, g_inv, coords);
@@ -124,12 +169,24 @@ int main() {
             throw std::runtime_error("Error opening output file.");
         }
 
+
+        Tensor EFE_left_side({dim, dim}, {"mu", "nu"});
+        for (int i = 0; i < dim; ++i) {
+            for (int j = 0; j < dim; ++j) {
+                auto G_mn = Einstein.get_element({i, j});
+                auto g_mn = metric.get_element({i, j});
+                // EFE left side: G_{mu nu} + Lambda * g_{mu nu}
+                EFE_left_side.set_element({i, j}, add(G_mn, mul(Lambda_val, g_mn)));
+            }
+        }
+
         print_tensor_to_file(metric, "FRW Metric Tensor g_ij", output_file);
         print_tensor_to_file(g_inv, "Inverse Metric Tensor g^ij", output_file);
         print_tensor_to_file(Gamma, "Christoffel Symbols Γ^k_ij", output_file);
         print_tensor_to_file(Riemann, "Riemann Tensor R^m_nij", output_file);
         print_tensor_to_file(Ricci, "Ricci Tensor R_mu_nu", output_file);
         print_tensor_to_file(Einstein, "Einstein Tensor G_mu_nu", output_file);
+        print_tensor_to_file(EFE_left_side, "EFE Left Side (G_mu_nu + Lambda * g_mu_nu)", output_file);
 
         output_file.close();
         std::cout << "Calculation completed. Results saved to output.txt.\n";
