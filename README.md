@@ -169,21 +169,3 @@ Choose the license that fits your goals (MIT/BSD/Apache-2.0/MPL-2.0/GPL-family).
 This project name overlaps with the well-known **Eigen** C++ library. This repository is independent and not affiliated with the upstream Eigen project hosted at `libeigen` on GitLab. If you’re looking for the upstream Eigen linear algebra library and its docs, see the official pages. (This repo is a separate learning/utility project.) ([about.gitlab.com][2], [GitLab][3])
 
 ---
-
-### Shields (optional)
-
-You can add badges once CI and a license are in place:
-
-```
-[![CI](https://img.shields.io/github/actions/workflow/status/alirezaebrahimi5/eigen/ci.yml?branch=main)](...)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](...)
-[![C++](https://img.shields.io/badge/C%2B%2B-17/20-informational.svg)](...)
-```
-
----
-
-If you want, tell me your actual public header names and CMake target name and I’ll tailor the README snippets to match exactly.
-
-[1]: https://github.com/alirezaebrahimi5/eigen "GitHub - alirezaebrahimi5/eigen"
-[2]: https://gitlab.com/libeigen/eigen/-/tree/3147391d946bb4b6c68edd901f2add6ac1f31f8c?utm_source=chatgpt.com "libeigen / eigen · GitLab"
-[3]: https://libeigen.gitlab.io/eigen/docs-nightly/?utm_source=chatgpt.com "Eigen: Main Page"
