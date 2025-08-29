@@ -1,7 +1,3 @@
-Here’s a polished `README.md` you can drop into your repo. I wrote it to match what’s in the repository today (C++ project with `include/`, `src/`, and a `CMakeLists.txt`; language mix ≈98.5% C++ / 1.5% CMake). Tweak any names/paths if your public headers or targets differ. ([GitHub][1])
-
----
-
 # eigen
 
 Tiny, modern C++ linear-algebra playground: header-first components under `include/` with implementations in `src/`, built with CMake. Use it as a learning project, a starting point for your own math utilities, or embed selected modules into your app. ([GitHub][1])
